@@ -30,7 +30,7 @@ spec:
         fsGroup: 2000
       containers:
       - name: wisecow
-        image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        image: ${IMAGE_NAME}:${IMAGE_TAG}
         imagePullPolicy: IfNotPresent
         ports:
         - name: http

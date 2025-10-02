@@ -142,6 +142,13 @@ jobs:
       run: |
         echo "Applying Kubernetes manifests..."
         
+        # Install gettext for envsubst
+        apt-get update && apt-get install -y gettext
+        
+        # Export the environment variables for envsubst
+        export IMAGE_NAME=${{ env.IMAGE_NAME }}
+        export IMAGE_TAG=${{ env.IMAGE_TAG }}
+        
         # Create a temporary directory for processed manifests
         mkdir -p /tmp/k8s-manifests
         
@@ -153,11 +160,16 @@ jobs:
           fi
           
           echo "Processing $file..."
+          
+          # Process the template with envsubst
+          processed_file="/tmp/k8s-manifests/$(basename $file)"
+          envsubst < "$file" > "$processed_file"
+          
           # Apply with namespace if not already specified
-          if ! grep -q "namespace:" "$file"; then
-            kubectl apply -f "$file" -n ${{ env.KUBE_NAMESPACE }}
+          if ! grep -q "namespace:" "$processed_file"; then
+            kubectl apply -f "$processed_file" -n ${{ env.KUBE_NAMESPACE }}
           else
-            kubectl apply -f "$file"
+            kubectl apply -f "$processed_file"
           fi
         done
         
