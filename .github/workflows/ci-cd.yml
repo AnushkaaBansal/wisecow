@@ -56,17 +56,22 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build and push Docker image
-      uses: docker/build-push-action@v4
-      with:
-        context: .
-        push: ${{ github.event_name != 'pull_request' }}
-        tags: |
-          ${{ env.CONTAINER_REGISTRY }}/${{ github.repository_owner | lower }}/${{ env.IMAGE_NAME }}:latest
-          ${{ env.CONTAINER_REGISTRY }}/${{ github.repository_owner | lower }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        build-args: |
-          NODE_ENV=production
+      id: docker_build
+      run: |
+        # Convert repository owner to lowercase
+        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        
+        # Build and push the image
+        docker buildx create --use
+        docker buildx build \
+          --push \
+          --platform linux/amd64 \
+          -t ${{ env.CONTAINER_REGISTRY }}/$REPO_OWNER_LOWER/${{ env.IMAGE_NAME }}:latest \
+          -t ${{ env.CONTAINER_REGISTRY }}/$REPO_OWNER_LOWER/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+          --cache-from=type=gha \
+          --cache-to=type=gha,mode=max \
+          --build-arg NODE_ENV=production \
+          .
 
   deploy:
     needs: build-and-push
