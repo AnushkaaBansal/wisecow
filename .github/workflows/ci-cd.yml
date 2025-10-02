@@ -55,12 +55,6 @@ jobs:
         # Wait for cert-manager to be ready
         kubectl wait --for=condition=available --timeout=300s deployment/cert-manager -n cert-manager
         
-        # Install KubeArmor
-        kubectl apply -f https://raw.githubusercontent.com/kubearmor/kubearmor-client/main/deployments/controller/controller-deployment.yaml
-        
-        # Wait for KubeArmor to be ready
-        kubectl wait --for=condition=ready pod -l kubearmor-app=kubearmor-controller -n kube-system --timeout=300s
-        
         # Load local image into Kind
         kind load docker-image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
         
