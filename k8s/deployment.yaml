@@ -30,7 +30,7 @@ spec:
         fsGroup: 2000
       containers:
       - name: wisecow
-        image: ghcr.io/REPO_OWNER/wisecow:latest
+        image: wisecow:local
         imagePullPolicy: IfNotPresent
         ports:
         - name: http
