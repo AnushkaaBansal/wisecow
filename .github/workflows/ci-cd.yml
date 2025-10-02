@@ -42,8 +42,41 @@ jobs:
           
         echo "Image successfully built with tag: wisecow:local"
 
-  deploy:
+  test:
     needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Set up Kind
+      uses: helm/kind-action@v1.8.0
+      with:
+        config: ./kind-config.yaml
+        
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: ${{ env.KUBERNETES_VERSION }}
+        
+    - name: Verify cluster
+      run: |
+        # Enable debugging
+        set -ex
+        
+        # Verify kubectl is working
+        echo "=== kubectl version ==="
+        kubectl version --client
+        
+        echo "=== kubectl cluster-info ==="
+        kubectl cluster-info
+        
+        echo "=== Nodes ==="
+        kubectl get nodes
+        
+  deploy:
+    needs: [build, test]
     if: github.event_name != 'pull_request'  # Skip deployment for PRs
     runs-on: ubuntu-latest
     environment: production
