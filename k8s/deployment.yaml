@@ -3,25 +3,64 @@ kind: Deployment
 metadata:
   name: wisecow
   namespace: wisecow
+  labels:
+    app: wisecow
+    version: v1.0.0
 spec:
-  replicas: 1
+  replicas: 2
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: wisecow
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
         app: wisecow
+        version: v1.0.0
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
       containers:
       - name: wisecow
-        image: ghcr.io/AnushkaaBansal/wisecow:latest
-        imagePullPolicy: Always
+        image: ghcr.io/anushkaabansal/wisecow:local
+        imagePullPolicy: IfNotPresent
         ports:
-        - containerPort: 4499
-        securityContext:
-          runAsUser: 0  # Run as root for now to avoid permission issues
+        - name: http
+          containerPort: 4499
+          protocol: TCP
         resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
           limits:
             cpu: 200m
             memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 4499
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 4499
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        env:
+        - name: NODE_ENV
+          value: production
+        - name: PORT
+          value: "4499"

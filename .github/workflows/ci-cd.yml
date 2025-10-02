@@ -5,15 +5,39 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 env:
-  IMAGE_NAME: wisecow
-  CONTAINER_REGISTRY: ghcr.io  # GitHub Container Registry
-  KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+  IMAGE_NAME: wisecow:local  # Using local tag as specified
+  CONTAINER_REGISTRY: ghcr.io/anushkaabansal  # Lowercase username
   KUBE_NAMESPACE: wisecow
+  KUBERNETES_VERSION: v1.27.0
 
 jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Lint Python files
+      run: |
+        pip install flake8
+        flake8 scripts/ --count --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Run unit tests
+      run: |
+        pip install pytest
+        # Add your test command here when tests are available
+        # pytest tests/
+
   build-and-push:
+    needs: lint-and-test
     runs-on: ubuntu-latest
     
     steps:
@@ -34,16 +58,21 @@ jobs:
       uses: docker/build-push-action@v4
       with:
         context: .
-        push: true
+        push: ${{ github.event_name != 'pull_request' }}
         tags: |
-          ${{ env.CONTAINER_REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
-          ${{ env.CONTAINER_REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          ${{ env.CONTAINER_REGISTRY }}/wisecow:local
+          ${{ env.CONTAINER_REGISTRY }}/wisecow:${{ github.sha }}
+        labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        build-args: |
+          NODE_ENV=production
 
   deploy:
     needs: build-and-push
+    if: github.event_name != 'pull_request'  # Skip deployment for PRs
     runs-on: ubuntu-latest
+    environment: production
     
     steps:
     - name: Checkout code
@@ -51,20 +80,82 @@ jobs:
 
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
+      with:
+        version: ${{ env.KUBERNETES_VERSION }}
 
     - name: Configure Kubernetes
       run: |
         mkdir -p ~/.kube
         echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+        chmod 600 ~/.kube/config
+        
+        # Verify kubectl is working
         kubectl version --client
+        kubectl cluster-info
 
     - name: Deploy to Kubernetes
       run: |
-        # Update the image in the deployment
-        kubectl set image deployment/wisecow \
-          wisecow=${{ env.CONTAINER_REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-          -n ${{ env.KUBE_NAMESPACE }}
+        # Set image name with tag
+        IMAGE_WITH_TAG="${{ env.CONTAINER_REGISTRY }}/wisecow:local"
         
-        # Verify deployment
-        kubectl rollout status deployment/wisecow -n ${{ env.KUBE_NAMESPACE }}
+        echo "Deploying image: $IMAGE_WITH_TAG"
+        
+        # Apply Kubernetes manifests
+        kubectl apply -f k8s/namespace.yaml
+        kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f k8s/service.yaml
+        kubectl apply -f k8s/ingress.yaml
+        
+        # Update the deployment with the new image
+        kubectl set image deployment/wisecow \
+          wisecow=$IMAGE_WITH_TAG \
+          -n ${{ env.KUBE_NAMESPACE }} --record
+        
+        # Wait for rollout to complete
+        kubectl rollout status deployment/wisecow -n ${{ env.KUBE_NAMESPACE }} --timeout=300s
+        
+        # Verify resources
+        echo "\n=== Deployment Status ==="
+        kubectl get deployments -n ${{ env.KUBE_NAMESPACE }}
+        
+        echo "\n=== Pods Status ==="
         kubectl get pods -n ${{ env.KUBE_NAMESPACE }}
+        
+        echo "\n=== Service Status ==="
+        kubectl get svc -n ${{ env.KUBE_NAMESPACE }}
+        
+        echo "\n=== Ingress Status ==="
+        kubectl get ingress -n ${{ env.KUBE_NAMESPACE }}
+        
+        # Get application URL
+        echo "\n=== Application URL ==="
+        kubectl get ingress -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.items[0].spec.rules[0].host}'
+
+  notify:
+    needs: [lint-and-test, build-and-push, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - name: Notify Slack on failure
+      if: failure()
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_CHANNEL: deployments
+        SLACK_COLOR: '#ff0000'
+        SLACK_ICON: https://github.com/fluidicon.png
+        SLACK_MESSAGE: '❌ Deployment failed: ${{ github.workflow }}'
+        SLACK_TITLE: 'Deployment Failed'
+        SLACK_USERNAME: GitHub Actions
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+    
+    - name: Notify Slack on success
+      if: success()
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_CHANNEL: deployments
+        SLACK_COLOR: '#36a64f'
+        SLACK_ICON: https://github.com/fluidicon.png
+        SLACK_MESSAGE: '✅ Deployment successful: ${{ github.workflow }}'
+        SLACK_TITLE: 'Deployment Succeeded'
+        SLACK_USERNAME: GitHub Actions
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
