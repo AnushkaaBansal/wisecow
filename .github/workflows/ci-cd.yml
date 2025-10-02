@@ -70,33 +70,6 @@ jobs:
       with:
         version: ${{ env.KUBERNETES_VERSION }}
         
-    - name: Install cert-manager
-      run: |
-        set -ex
-        echo "=== Installing cert-manager ==="
-        # Install cert-manager CRDs
-        kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.crds.yaml
-        
-        # Create cert-manager namespace if it doesn't exist
-        kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
-        
-        # Install cert-manager
-        kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml
-        
-        # Wait for cert-manager to be ready
-        kubectl wait --for=condition=available --timeout=300s deployment/cert-manager -n cert-manager
-        kubectl wait --for=condition=available --timeout=300s deployment/cert-manager-cainjector -n cert-manager
-        kubectl wait --for=condition=available --timeout=300s deployment/cert-manager-webhook -n cert-manager
-        
-    - name: Install KubeArmor CRDs
-      run: |
-        set -ex
-        echo "=== Installing KubeArmor CRDs ==="
-        # Install KubeArmor CRDs if the file exists
-        if [ -f "k8s/kubearmor-crds.yaml" ]; then
-          kubectl apply -f k8s/kubearmor-crds.yaml
-        fi
-        
     - name: Test Kubernetes Deployment
       run: |
         # Enable debugging
@@ -104,28 +77,11 @@ jobs:
         
         echo "=== Testing Kubernetes Deployment ==="
         
-        # Create namespace if it doesn't exist
+        # Create namespace
         kubectl create namespace ${{ env.KUBE_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
         
-        # Deploy application resources in the correct order
-        # 1. First apply the cert-manager related resources
-        if [ -f "k8s/cert-manager.yaml" ]; then
-          kubectl apply -f k8s/cert-manager.yaml -n ${{ env.KUBE_NAMESPACE }}
-        fi
-        
-        if [ -f "k8s/selfsigned-issuer.yaml" ]; then
-          kubectl apply -f k8s/selfsigned-issuer.yaml -n ${{ env.KUBE_NAMESPACE }}
-        fi
-        
-        # 2. Then apply the main application resources
-        # Exclude cert-manager and KubeArmor specific files from the general apply
-        for file in k8s/*.yaml; do
-          if [[ "$file" != *"cert-manager.yaml"* ]] && 
-             [[ "$file" != *"selfsigned-issuer.yaml"* ]] && 
-             [[ "$file" != *"kubearmor"* ]]; then
-            kubectl apply -f "$file" -n ${{ env.KUBE_NAMESPACE }}
-          fi
-        done
+        # Deploy application
+        kubectl apply -f k8s/ -n ${{ env.KUBE_NAMESPACE }}
         
         # Wait for deployment to be ready
         kubectl wait --for=condition=available --timeout=300s deployment/wisecow -n ${{ env.KUBE_NAMESPACE }}
