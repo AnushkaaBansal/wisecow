@@ -51,14 +51,18 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
-
+      
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
       with:
         version: ${{ env.KUBERNETES_VERSION }}
-
+        
     - name: Configure Kubernetes
       run: |
+        # Enable debugging
+        set -ex
+        
+        # Create .kube directory and config
         mkdir -p ~/.kube
         echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
         chmod 600 ~/.kube/config
@@ -72,19 +76,11 @@ jobs:
         # Enable debugging
         set -ex
         
-        # Use the locally built image
-        IMAGE_WITH_TAG="$FULL_IMAGE_NAME:$IMAGE_TAG"
-        
-        # Debug output
-        echo "=== Deployment Information ==="
-        echo "Image with tag: $IMAGE_WITH_TAG"
-        
         # Create a temporary directory for modified manifests
         mkdir -p tmp_manifests
         
         # Process deployment file to use the local image
-        cat k8s/deployment.yaml | \
-          sed "s|image: .*|image: $IMAGE_WITH_TAG|g" > tmp_manifests/deployment.yaml
+        sed "s|image: .*|image: wisecow:local|" k8s/deployment.yaml > tmp_manifests/deployment.yaml
         
         # Verify the processed deployment file
         echo "=== Processed Deployment File ==="
@@ -100,47 +96,18 @@ jobs:
         kubectl rollout status deployment/wisecow -n ${{ env.KUBE_NAMESPACE }} --timeout=300s
         
         # Verify resources
-        echo "\n=== Deployment Status ==="
+        echo -e "\n=== Deployment Status ==="
         kubectl get deployments -n ${{ env.KUBE_NAMESPACE }}
         
-        echo "\n=== Pods Status ==="
+        echo -e "\n=== Pods Status ==="
         kubectl get pods -n ${{ env.KUBE_NAMESPACE }}
         
-        echo "\n=== Service Status ==="
+        echo -e "\n=== Service Status ==="
         kubectl get svc -n ${{ env.KUBE_NAMESPACE }}
         
-        echo "\n=== Ingress Status ==="
+        echo -e "\n=== Ingress Status ==="
         kubectl get ingress -n ${{ env.KUBE_NAMESPACE }}
         
         # Get application URL
-        echo "\n=== Application URL ==="
+        echo -e "\n=== Application URL ==="
         kubectl get ingress -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.items[0].spec.rules[0].host}'
-
-  notify:
-    needs: [lint-and-test, build-and-push, deploy]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-    - name: Notify Slack on failure
-      if: failure()
-      uses: rtCamp/action-slack-notify@v2
-      env:
-        SLACK_CHANNEL: deployments
-        SLACK_COLOR: '#ff0000'
-        SLACK_ICON: https://github.com/fluidicon.png
-        SLACK_MESSAGE: '❌ Deployment failed: ${{ github.workflow }}'
-        SLACK_TITLE: 'Deployment Failed'
-        SLACK_USERNAME: GitHub Actions
-        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-    
-    - name: Notify Slack on success
-      if: success()
-      uses: rtCamp/action-slack-notify@v2
-      env:
-        SLACK_CHANNEL: deployments
-        SLACK_COLOR: '#36a64f'
-        SLACK_ICON: https://github.com/fluidicon.png
-        SLACK_MESSAGE: '✅ Deployment successful: ${{ github.workflow }}'
-        SLACK_TITLE: 'Deployment Succeeded'
-        SLACK_USERNAME: GitHub Actions
-        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
