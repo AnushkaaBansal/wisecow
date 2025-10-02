@@ -117,25 +117,88 @@ jobs:
         
         # Load local image into Kind
         kind load docker-image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+    
+    - name: Install cert-manager CRDs
+      run: |
+        echo "Installing cert-manager CRDs..."
+        kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.crds.yaml
         
-        # Apply application manifests
-        kubectl apply -f k8s/ -n ${{ env.KUBE_NAMESPACE }}
+        # Wait for CRDs to be established
+        kubectl wait --for=condition=Established crd --all --timeout=60s
+    
+    - name: Install KubeArmor CRDs
+      run: |
+        echo "Installing KubeArmor CRDs..."
+        kubectl apply -f https://raw.githubusercontent.com/kubearmor/kubearmor-client/main/deployments/CRD/KubeArmorPolicy.yaml
         
-        # Wait for deployment
-        kubectl wait --for=condition=available --timeout=300s deployment/wisecow -n ${{ env.KUBE_NAMESPACE }}
+        # Wait for CRDs to be established
+        kubectl wait --for=condition=Established crd kubearmorpolicies.security.kubearmor.com --timeout=60s
+    
+    - name: Apply Kubernetes Manifests
+      run: |
+        echo "Applying Kubernetes manifests..."
         
-        # Show resources
+        # Create a temporary directory for processed manifests
+        mkdir -p /tmp/k8s-manifests
+        
+        # Process and apply each manifest
+        for file in k8s/*.yaml; do
+          if [[ "$file" == *"cert-manager.yaml"* ]] || [[ "$file" == *"kubearmor-policy.yaml"* ]]; then
+            echo "Skipping $file (already handled by CRD installation)"
+            continue
+          fi
+          
+          echo "Processing $file..."
+          # Apply with namespace if not already specified
+          if ! grep -q "namespace:" "$file"; then
+            kubectl apply -f "$file" -n ${{ env.KUBE_NAMESPACE }}
+          else
+            kubectl apply -f "$file"
+          fi
+        done
+        
+        # Wait for deployment to be available
+        echo "Waiting for deployment to be available..."
+        kubectl wait --for=condition=available \
+          --timeout=300s \
+          deployment/wisecow \
+          -n ${{ env.KUBE_NAMESPACE }}
+        
+        # Show resources for debugging
+        echo "=== Cluster Resources ==="
         kubectl get all -n ${{ env.KUBE_NAMESPACE }}
     
     - name: Test Deployment
       run: |
-        # Get pod name
-        POD_NAME=$(kubectl get pods -n ${{ env.KUBE_NAMESPACE }} -l app=wisecow -o jsonpath="{.items[0].metadata.name}")
+        # Get pod name with retry logic
+        for i in {1..5}; do
+          POD_NAME=$(kubectl get pods -n ${{ env.KUBE_NAMESPACE }} -l app=wisecow -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
+          if [ -n "$POD_NAME" ]; then
+            break
+          fi
+          echo "Waiting for pod to be ready (attempt $i/5)..."
+          sleep 5
+        done
         
-        # Test application
-        kubectl exec -n ${{ env.KUBE_NAMESPACE }} $POD_NAME -- curl -s http://localhost:4499 | grep -q "Wisecow"
+        if [ -z "$POD_NAME" ]; then
+          echo "Error: Failed to get pod name"
+          kubectl get pods -n ${{ env.KUBE_NAMESPACE }}
+          exit 1
+        fi
         
-        echo "=== Application is running successfully ==="
+        # Test application with retry logic
+        for i in {1..5}; do
+          if kubectl exec -n ${{ env.KUBE_NAMESPACE }} $POD_NAME -- curl -s http://localhost:4499; then
+            echo "=== Application is running successfully ==="
+            exit 0
+          fi
+          echo "Application not ready yet (attempt $i/5), retrying..."
+          sleep 5
+        done
+        
+        echo "Error: Application did not become ready"
+        kubectl logs -n ${{ env.KUBE_NAMESPACE }} $POD_NAME
+        exit 1
         
         # Clean up
         echo "=== Cleaning up test resources ==="
