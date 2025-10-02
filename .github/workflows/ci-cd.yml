@@ -115,8 +115,10 @@ jobs:
           --selector=app.kubernetes.io/component=controller \
           --timeout=300s
         
-        # Load local image into Kind
-        kind load docker-image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        # Build and load the Docker image directly into Kind
+        echo "Building and loading Docker image into Kind..."
+        docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
+        kind load docker-image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} --name kind
     
     - name: Install cert-manager CRDs
       run: |
