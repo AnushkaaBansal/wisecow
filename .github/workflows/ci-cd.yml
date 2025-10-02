@@ -58,19 +58,36 @@ jobs:
     - name: Build and push Docker image
       id: docker_build
       run: |
-        # Convert repository owner to lowercase
-        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        # Enable debugging
+        set -x
         
-        # Build and push the image
-        docker buildx create --use
+        # Print environment for debugging
+        echo "GitHub Repository: ${{ github.repository }}"
+        echo "GitHub Actor: ${{ github.actor }}"
+        echo "GitHub SHA: ${{ github.sha }}"
+        
+        # Set image details
+        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        IMAGE_TAG="${{ github.sha }}"
+        IMAGE_NAME="${{ env.IMAGE_NAME }}"
+        FULL_IMAGE_NAME="${{ env.CONTAINER_REGISTRY }}/$REPO_OWNER_LOWER/$IMAGE_NAME"
+        
+        echo "Building image: $FULL_IMAGE_NAME with tags: latest, $IMAGE_TAG"
+        
+        # Create and use buildx builder
+        docker buildx create --name mybuilder --use || true
+        docker buildx inspect --bootstrap
+        
+        # Build and push with detailed output
         docker buildx build \
           --push \
           --platform linux/amd64 \
-          -t ${{ env.CONTAINER_REGISTRY }}/$REPO_OWNER_LOWER/${{ env.IMAGE_NAME }}:latest \
-          -t ${{ env.CONTAINER_REGISTRY }}/$REPO_OWNER_LOWER/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+          -t $FULL_IMAGE_NAME:latest \
+          -t $FULL_IMAGE_NAME:$IMAGE_TAG \
           --cache-from=type=gha \
           --cache-to=type=gha,mode=max \
           --build-arg NODE_ENV=production \
+          --progress=plain \
           .
 
   deploy:
@@ -104,13 +121,16 @@ jobs:
         REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
         IMAGE_WITH_TAG="${{ env.CONTAINER_REGISTRY }}/$REPO_OWNER_LOWER/${{ env.IMAGE_NAME }}:${{ github.sha }}"
         
-        echo "Deploying image: $IMAGE_WITH_TAG"
+        # Debug output
+        echo "=== Deployment Information ==="
+        echo "Repository Owner: ${{ github.repository_owner }}"
+        echo "Repository Owner (lowercase): $REPO_OWNER_LOWER"
+        echo "Image with tag: $IMAGE_WITH_TAG"
         
         # Create a temporary directory for modified manifests
         mkdir -p tmp_manifests
         
-        # Process deployment file to replace REPO_OWNER placeholder (convert to lowercase)
-        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        # Process deployment file to replace REPO_OWNER placeholder
         sed "s|REPO_OWNER|$REPO_OWNER_LOWER|g" k8s/deployment.yaml > tmp_manifests/deployment.yaml
         
         # Apply Kubernetes manifests
