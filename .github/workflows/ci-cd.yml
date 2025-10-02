@@ -49,46 +49,26 @@ jobs:
         # Enable debugging and exit on error
         set -ex
         
-        echo "=== Starting Kind Cluster Setup ==="
+        echo "=== Starting Basic Kind Cluster Setup ==="
         
         # 1. Check if kind is installed
         echo "=== Checking kind installation ==="
-        kind version
+        kind version || echo "kind not found"
         
         # 2. Delete any existing clusters
         echo "=== Cleaning up existing clusters ==="
         kind delete cluster || echo "No existing clusters to delete"
         
-        # 3. Create a minimal Kind config file
-        echo "=== Creating Kind configuration ==="
-        cat > /tmp/kind-config.yaml <<EOF
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-- role: control-plane
-  extraPortMappings:
-  - containerPort: 80
-    hostPort: 80
-    protocol: TCP
-  - containerPort: 443
-    hostPort: 443
-    protocol: TCP
-EOF
+        # 3. Create a basic cluster without config file
+        echo "=== Creating basic Kind cluster ==="
+        kind create cluster --name basic-cluster --wait 5m -v 5
         
-        # 4. Show the config file for debugging
-        echo "=== Kind Configuration ==="
-        cat /tmp/kind-config.yaml
-        
-        # 5. Create the cluster with verbose output
-        echo "=== Creating Kind cluster ==="
-        kind create cluster --config /tmp/kind-config.yaml --wait 5m -v 5
-        
-        # 6. Verify the cluster
+        # 4. Verify the cluster
         echo "=== Verifying cluster ==="
         kubectl cluster-info
         kubectl get nodes -o wide
         
-        echo "=== Kind cluster setup complete ==="
+        echo "=== Basic Kind cluster setup complete ==="
     
     - name: Load local image into Kind
       run: |
