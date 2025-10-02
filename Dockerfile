@@ -14,11 +14,15 @@ RUN apt-get update && \
 # Create app directory and copy script
 WORKDIR /app
 COPY wisecow.sh /app/wisecow.sh
-RUN chmod +x /app/wisecow.sh
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /tmp && \
-    chmod 777 /tmp
+    chmod 777 /tmp && \
+    chmod +x /app/wisecow.sh && \
+    chown -R 1000:3000 /app /tmp
+
+# Switch to non-root user
+USER 1000:3000
 
 # Set PATH to include games
 ENV PATH="/usr/games:${PATH}"

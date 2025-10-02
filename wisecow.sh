@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 SRVPORT=4499
 RSPFILE="/tmp/response.txt"
 
@@ -7,6 +9,19 @@ RSPFILE="/tmp/response.txt"
 mkdir -p $(dirname $RSPFILE)
 touch $RSPFILE
 chmod 666 $RSPFILE
+
+# Log function
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+# Check if required commands are available
+for cmd in cowsay fortune nc; do
+    if ! command -v $cmd &> /dev/null; then
+        log "Error: $cmd is not installed"
+        exit 1
+    fi
+done
 
 # Function to generate a new response
 generate_response() {
