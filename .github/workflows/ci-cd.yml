@@ -45,21 +45,25 @@ jobs:
         echo "Image successfully built: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
         
     - name: Set up Kind Cluster
-      uses: helm/kind-action@v1.8.0
-      with:
-        config: kind-config.yaml
-        
-    - name: Load local image into Kind
       run: |
         # Enable debugging
         set -ex
         
-        echo "=== Loading local image into Kind cluster ==="
+        echo "=== Setting up Kind Cluster ==="
+        
+        # Delete any existing Kind cluster
+        kind delete cluster || true
+        
+        # Create Kind cluster using the config file
+        kind create cluster --config=$GITHUB_WORKSPACE/kind-config.yaml --wait 5m
+        
+        # Verify the cluster is running
+        kubectl cluster-info
         
         # Load the local image into the Kind cluster
         kind load docker-image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
         
-        echo "Image successfully loaded into Kind cluster"
+        echo "=== Kind cluster setup complete ==="
         
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
