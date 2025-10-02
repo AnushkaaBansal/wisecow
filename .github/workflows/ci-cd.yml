@@ -33,11 +33,38 @@ jobs:
     - name: Test Docker image
       run: |
         echo "=== Testing Docker Image ==="
+        
+        # Start the container
         docker run -d --name wisecow-test -p 4499:4499 ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        sleep 5
-        curl -s http://localhost:4499 | grep -q "Wisecow"
-        docker stop wisecow-test
-        docker rm wisecow-test
+        
+        # Wait for the container to be ready (up to 30 seconds)
+        echo "Waiting for container to be ready..."
+        for i in {1..30}; do
+          if docker logs wisecow-test 2>&1 | grep -q "Listening"; then
+            echo "Container is ready!"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "Timed out waiting for container to be ready"
+            docker logs wisecow-test
+            exit 1
+          fi
+          sleep 1
+        done
+        
+        # Test the application
+        echo "Testing application..."
+        if ! curl -s http://localhost:4499 | grep -q "Wisecow"; then
+          echo "Application test failed! Container logs:"
+          docker logs wisecow-test
+          exit 1
+        fi
+        
+        # Clean up
+        echo "Cleaning up..."
+        docker stop wisecow-test || true
+        docker rm wisecow-test || true
+        
         echo "=== Docker image test passed ==="
     
     - name: Set up Kind Cluster
