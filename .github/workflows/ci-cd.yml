@@ -46,16 +46,22 @@ jobs:
         
     - name: Set up Kind Cluster
       run: |
-        # Enable debugging
+        # Enable debugging and exit on error
         set -ex
         
+        echo "=== Starting Kind Cluster Setup ==="
+        
+        # 1. Check if kind is installed
+        echo "=== Checking kind installation ==="
+        kind version
+        
+        # 2. Delete any existing clusters
+        echo "=== Cleaning up existing clusters ==="
+        kind delete cluster || echo "No existing clusters to delete"
+        
+        # 3. Create a minimal Kind config file
         echo "=== Creating Kind configuration ==="
-        
-        # Create a directory for Kind config
-        mkdir -p /tmp/kind
-        
-        # Create the Kind config file
-        cat > /tmp/kind/kind-config.yaml << 'EOL'
+        cat > /tmp/kind-config.yaml <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -67,21 +73,22 @@ nodes:
   - containerPort: 443
     hostPort: 443
     protocol: TCP
-EOL
+EOF
         
-        echo "=== Kind configuration created ==="
+        # 4. Show the config file for debugging
+        echo "=== Kind Configuration ==="
+        cat /tmp/kind-config.yaml
+        
+        # 5. Create the cluster with verbose output
         echo "=== Creating Kind cluster ==="
+        kind create cluster --config /tmp/kind-config.yaml --wait 5m -v 5
         
-        # Create the cluster
-        kind create cluster --config /tmp/kind/kind-config.yaml --wait 5m
-        
-        echo "=== Kind cluster created ==="
-        
-        # Verify the cluster is running
+        # 6. Verify the cluster
+        echo "=== Verifying cluster ==="
         kubectl cluster-info
+        kubectl get nodes -o wide
         
-        # Show nodes
-        kubectl get nodes
+        echo "=== Kind cluster setup complete ==="
     
     - name: Load local image into Kind
       run: |
