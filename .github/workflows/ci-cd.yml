@@ -55,11 +55,20 @@ jobs:
         
         # Test the application
         echo "Testing application..."
-        if ! curl -s http://localhost:4499 | grep -q "Wisecow"; then
-          echo "Application test failed! Container logs:"
+        RESPONSE=$(curl -s http://localhost:4499)
+        
+        # Check if we got a response and it contains a cowsay pattern
+        if [ -z "$RESPONSE" ] || ! echo "$RESPONSE" | grep -q "_\\/\|^\\\\_\\/\|^__"; then
+          echo "Application test failed! Response was empty or not a valid cowsay output."
+          echo "=== Response Start ==="
+          echo "$RESPONSE"
+          echo "=== Response End ==="
+          echo "Container logs:"
           docker logs wisecow-test
           exit 1
         fi
+        
+        echo "Application test passed! Received valid cowsay output."
         
         # Clean up
         echo "Cleaning up..."
