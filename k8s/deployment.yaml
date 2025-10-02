@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wisecow
+  namespace: wisecow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wisecow
+  template:
+    metadata:
+      labels:
+        app: wisecow
+    spec:
+      containers:
+      - name: wisecow
+        image: ghcr.io/AnushkaaBansal/wisecow:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 4499
+        securityContext:
+          runAsUser: 0  # Run as root for now to avoid permission issues
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi

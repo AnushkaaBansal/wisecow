@@ -1,0 +1,24 @@
+apiVersion: security.kubearmor.com/v1
+kind: KubeArmorPolicy
+metadata:
+  name: wisecow-security-policy
+  namespace: wisecow
+spec:
+  selector:
+    matchLabels:
+      app: wisecow
+  process:
+    matchPaths:
+    - path: /app/wisecow.sh
+  file:
+    matchDirectories:
+    - dir: /app/
+      recursive: true
+  network:
+    matchProtocols:
+    - protocol: tcp
+      fromSource:
+      - path: /app/wisecow.sh
+  action: "Allow"
+  severity: 5
+  message: "Wisecow container is restricted (granted minimal permissions)"

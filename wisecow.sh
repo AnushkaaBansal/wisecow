@@ -1,46 +1,51 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 SRVPORT=4499
-RSPFILE=response
+RSPFILE="/tmp/response.txt"
 
-rm -f $RSPFILE
-mkfifo $RSPFILE
+# Create response file with proper permissions
+mkdir -p $(dirname $RSPFILE)
+touch $RSPFILE
+chmod 666 $RSPFILE
 
-get_api() {
-	read line
-	echo $line
-}
+# Function to generate a new response
+generate_response() {
+    # Generate fortune and cowsay output
+    fortune_msg=$(fortune)
+    cowsay_output=$(cowsay "$fortune_msg")
+    
+    # Create HTTP response
+    cat <<EOF > $RSPFILE
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Connection: close
 
-handleRequest() {
-    # 1) Process the request
-	get_api
-	mod=`fortune`
-
-cat <<EOF > $RSPFILE
-HTTP/1.1 200
-
-
-<pre>`cowsay $mod`</pre>
+$cowsay_output
 EOF
 }
 
+# Check prerequisites
 prerequisites() {
-	command -v cowsay >/dev/null 2>&1 &&
-	command -v fortune >/dev/null 2>&1 || 
-		{ 
-			echo "Install prerequisites."
-			exit 1
-		}
+    command -v cowsay >/dev/null 2>&1 || { echo "Error: cowsay not found"; exit 1; }
+    command -v fortune >/dev/null 2>&1 || { echo "Error: fortune not found"; exit 1; }
+    command -v nc >/dev/null 2>&1 || { echo "Error: netcat not found"; exit 1; }
 }
 
 main() {
-	prerequisites
-	echo "Wisdom served on port=$SRVPORT..."
-
-	while [ 1 ]; do
-		cat $RSPFILE | nc -lN $SRVPORT | handleRequest
-		sleep 0.01
-	done
+    prerequisites
+    echo "Wisdom served on port=$SRVPORT..."
+    
+    # Generate initial response
+    generate_response
+    
+    # Main server loop
+    while true; do
+        # Use nc to listen for connections and handle them
+        cat $RSPFILE | nc -l -p $SRVPORT -s 0.0.0.0 -w 1 >/dev/null 2>&1
+        # Generate a new response after each request
+        generate_response
+    done
 }
 
+# Run the server
 main
