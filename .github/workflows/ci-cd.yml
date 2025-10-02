@@ -10,9 +10,13 @@ env:
   IMAGE_NAME: wisecow
   KUBE_NAMESPACE: wisecow
   KUBERNETES_VERSION: v1.27.0
+  CONTAINER_REGISTRY: ghcr.io
+  REGISTRY_USERNAME: ${{ github.actor }}
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
-  build:
+  # CI Pipeline - Runs on PR and push to main
+  ci:
     runs-on: ubuntu-latest
     
     steps:
@@ -24,33 +28,35 @@ jobs:
       
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
+      
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ${{ env.CONTAINER_REGISTRY }}
+        username: ${{ env.REGISTRY_USERNAME }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build Docker image
+    - name: Build and push Docker image
       run: |
         # Enable debugging
         set -ex
         
-        echo "=== Building Image ==="
+        # Set image name
+        IMAGE=${{ env.CONTAINER_REGISTRY }}/${{ env.REGISTRY_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
         
-        # Build the image with the local tag
+        echo "=== Building and Pushing Image: $IMAGE ==="
+        
+        # Build and push the image
         docker buildx build \
           --platform linux/amd64 \
-          -t wisecow:local \
-          --load \
+          -t $IMAGE \
+          --push \
           --progress=plain \
           .
           
-        echo "Image successfully built with tag: wisecow:local"
-
-  test:
-    needs: build
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-      
-    - name: Set up Kind
+        echo "Image successfully built and pushed: $IMAGE"
+        
+    - name: Set up Kind Cluster
       uses: helm/kind-action@v1.8.0
       with:
         config: ./kind-config.yaml
@@ -60,24 +66,35 @@ jobs:
       with:
         version: ${{ env.KUBERNETES_VERSION }}
         
-    - name: Verify cluster
+    - name: Test Kubernetes Deployment
       run: |
         # Enable debugging
         set -ex
         
-        # Verify kubectl is working
-        echo "=== kubectl version ==="
-        kubectl version --client
+        echo "=== Testing Kubernetes Deployment ==="
         
-        echo "=== kubectl cluster-info ==="
-        kubectl cluster-info
+        # Create namespace
+        kubectl create namespace ${{ env.KUBE_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
         
-        echo "=== Nodes ==="
-        kubectl get nodes
+        # Deploy application
+        kubectl apply -f k8s/ -n ${{ env.KUBE_NAMESPACE }}
         
-  deploy:
-    needs: [build, test]
-    if: github.event_name != 'pull_request'  # Skip deployment for PRs
+        # Wait for deployment to be ready
+        kubectl wait --for=condition=available --timeout=300s deployment/wisecow -n ${{ env.KUBE_NAMESPACE }}
+        
+        # Get pod status
+        echo "=== Pod Status ==="
+        kubectl get pods -n ${{ env.KUBE_NAMESPACE }}
+        
+        # Test the application
+        echo "=== Testing Application ==="
+        kubectl run -i --rm --restart=Never test-curl --image=curlimages/curl -- \
+          curl -s http://wisecow.wisecow.svc.cluster.local || true
+
+  # CD Pipeline - Only runs on push to main
+  cd:
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     
@@ -89,6 +106,40 @@ jobs:
       uses: azure/setup-kubectl@v3
       with:
         version: ${{ env.KUBERNETES_VERSION }}
+        
+    - name: Configure Kubernetes
+      run: |
+        # Enable debugging
+        set -ex
+        
+        # Create .kube directory
+        mkdir -p ~/.kube
+        
+        # Write the kubeconfig to a file
+        echo "${{ secrets.KUBE_CONFIG }}" > kubeconfig.yaml
+        
+        # Convert the kubeconfig to the correct format if needed
+        if ! kubectl --kubeconfig=kubeconfig.yaml config view -o json &>/dev/null; then
+          echo "Converting kubeconfig to proper format..."
+          # If the file is a JSON array, extract the first item
+          if head -n 1 kubeconfig.yaml | grep -q '^\['; then
+            echo "Detected array format, converting to single object..."
+            # Extract the first item from the array
+            tail -n +2 kubeconfig.yaml | head -n -1 > kubeconfig-temp.yaml
+            mv kubeconfig-temp.yaml kubeconfig.yaml
+          fi
+        fi
+        
+        # Move the kubeconfig to the default location
+        cp kubeconfig.yaml ~/.kube/config
+        chmod 600 ~/.kube/config
+        
+        # Verify kubectl is working
+        echo "=== kubectl version ==="
+        kubectl version --client
+        
+        echo "=== kubectl cluster-info ==="
+        kubectl cluster-info
         
     - name: Configure Kubernetes
       run: |
