@@ -8,8 +8,9 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: wisecow:local  # Using local tag as specified
-  CONTAINER_REGISTRY: ghcr.io/anushkaabansal  # Lowercase username
+  IMAGE_NAME: wisecow
+  CONTAINER_REGISTRY: ghcr.io
+  IMAGE_TAG: ${{ github.sha }}
   KUBE_NAMESPACE: wisecow
   KUBERNETES_VERSION: v1.27.0
 
@@ -59,9 +60,7 @@ jobs:
       with:
         context: .
         push: ${{ github.event_name != 'pull_request' }}
-        tags: |
-          ${{ env.CONTAINER_REGISTRY }}/wisecow:local
-          ${{ env.CONTAINER_REGISTRY }}/wisecow:${{ github.sha }}
+        tags: ${{ env.CONTAINER_REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
@@ -96,13 +95,19 @@ jobs:
     - name: Deploy to Kubernetes
       run: |
         # Set image name with tag
-        IMAGE_WITH_TAG="${{ env.CONTAINER_REGISTRY }}/wisecow:local"
+        IMAGE_WITH_TAG="${{ env.CONTAINER_REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
         
         echo "Deploying image: $IMAGE_WITH_TAG"
         
+        # Create a temporary directory for modified manifests
+        mkdir -p tmp_manifests
+        
+        # Process deployment file to replace REPO_OWNER placeholder
+        sed "s|REPO_OWNER|${{ github.repository_owner }}|g" k8s/deployment.yaml > tmp_manifests/deployment.yaml
+        
         # Apply Kubernetes manifests
         kubectl apply -f k8s/namespace.yaml
-        kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f tmp_manifests/deployment.yaml
         kubectl apply -f k8s/service.yaml
         kubectl apply -f k8s/ingress.yaml
         
