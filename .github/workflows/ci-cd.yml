@@ -45,21 +45,37 @@ jobs:
         echo "Image successfully built: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
         
     - name: Set up Kind Cluster
-      uses: helm/kind-action@v1.8.0
-      with:
-        config: kind-config.yaml
-        
-    - name: Load local image into Kind
       run: |
         # Enable debugging
         set -ex
         
-        echo "=== Loading local image into Kind cluster ==="
+        echo "=== Setting up Kind Cluster ==="
         
-        # Load the local image into the Kind cluster
+        # Create a temporary kind config file
+        cat > kind-temp-config.yaml <<'EOF'
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: 80
+    protocol: TCP
+  - containerPort: 443
+    hostPort: 443
+    protocol: TCP
+EOF
+        
+        # Create the cluster with the config
+        kind create cluster --config=kind-temp-config.yaml --wait 5m
+        
+        # Verify the cluster is running
+        kubectl cluster-info
+        
+        # Load the local image into the cluster
         kind load docker-image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
         
-        echo "Image successfully loaded into Kind cluster"
+        echo "=== Kind cluster setup complete ==="
         
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
