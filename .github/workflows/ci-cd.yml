@@ -54,29 +54,8 @@ jobs:
         # Delete any existing Kind cluster
         kind delete cluster || true
         
-        # Create a temporary file for the Kind config
-        cat > /tmp/kind-config.yaml <<'EOF'
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-- role: control-plane
-  kubeadmConfigPatches:
-  - |
-    kind: InitConfiguration
-    nodeRegistration:
-      kubeletExtraArgs:
-        node-labels: "ingress-ready=true"
-  extraPortMappings:
-  - containerPort: 80
-    hostPort: 80
-    protocol: TCP
-  - containerPort: 443
-    hostPort: 443
-    protocol: TCP
-EOF
-        
-        # Create the Kind cluster
-        kind create cluster --config /tmp/kind-config.yaml --wait 5m
+        # Create a basic Kind cluster
+        kind create cluster --wait 5m
         
         # Verify the cluster is running
         kubectl cluster-info
