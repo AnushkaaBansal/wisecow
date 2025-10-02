@@ -69,9 +69,10 @@ jobs:
         echo "Container Registry: ${{ env.CONTAINER_REGISTRY }}"
         echo "Image Name: ${{ env.IMAGE_NAME }}"
         
-        # Set image details
-        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        echo "REPO_OWNER_LOWER: $REPO_OWNER_LOWER"
+        # Always use the GitHub username (actor) instead of repository owner
+        # This ensures we're pushing to the personal package namespace
+        PACKAGE_OWNER=$(echo "${{ github.actor }}" | tr '[:upper:]' '[:lower:]')
+        echo "PACKAGE_OWNER: $PACKAGE_OWNER"
         
         # Create buildx builder if it doesn't exist
         if ! docker buildx ls | grep -q mybuilder; then
@@ -86,7 +87,7 @@ jobs:
         docker buildx inspect --bootstrap
         
         # Output the image name for the next steps
-        echo "FULL_IMAGE_NAME=${{ env.CONTAINER_REGISTRY }}/$REPO_OWNER_LOWER/${{ env.IMAGE_NAME }}" >> $GITHUB_ENV
+        echo "FULL_IMAGE_NAME=${{ env.CONTAINER_REGISTRY }}/$PACKAGE_OWNER/${{ env.IMAGE_NAME }}" >> $GITHUB_ENV
         echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
         
     - name: Build and push Docker image
@@ -143,14 +144,14 @@ jobs:
         # Enable debugging
         set -ex
         
-        # Use the same lowercase repository owner from build step
-        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        # Use the same package owner as the build step
+        PACKAGE_OWNER=$(echo "${{ github.actor }}" | tr '[:upper:]' '[:lower:]')
         IMAGE_WITH_TAG="$FULL_IMAGE_NAME:$IMAGE_TAG"
         
         # Debug output
         echo "=== Deployment Information ==="
-        echo "Repository Owner: ${{ github.repository_owner }}"
-        echo "Repository Owner (lowercase): $REPO_OWNER_LOWER"
+        echo "GitHub Actor (package owner): ${{ github.actor }}"
+        echo "Package Owner (lowercase): $PACKAGE_OWNER"
         echo "Full Image Name: $FULL_IMAGE_NAME"
         echo "Image Tag: $IMAGE_TAG"
         echo "Image with tag: $IMAGE_WITH_TAG"
@@ -158,8 +159,8 @@ jobs:
         # Create a temporary directory for modified manifests
         mkdir -p tmp_manifests
         
-        # Process deployment file to replace REPO_OWNER placeholder
-        sed "s|REPO_OWNER|$REPO_OWNER_LOWER|g" k8s/deployment.yaml > tmp_manifests/deployment.yaml
+        # Process deployment file to replace REPO_OWNER placeholder with PACKAGE_OWNER
+        sed "s|REPO_OWNER|$PACKAGE_OWNER|g" k8s/deployment.yaml > tmp_manifests/deployment.yaml
         
         # Verify the processed deployment file
         echo "=== Processed Deployment File ==="
