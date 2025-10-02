@@ -60,8 +60,9 @@ jobs:
       with:
         context: .
         push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ env.CONTAINER_REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        labels: ${{ steps.meta.outputs.labels }}
+        tags: |
+          ${{ env.CONTAINER_REGISTRY }}/${{ github.repository_owner | lower }}/${{ env.IMAGE_NAME }}:latest
+          ${{ env.CONTAINER_REGISTRY }}/${{ github.repository_owner | lower }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         build-args: |
@@ -94,16 +95,18 @@ jobs:
 
     - name: Deploy to Kubernetes
       run: |
-        # Set image name with tag
-        IMAGE_WITH_TAG="${{ env.CONTAINER_REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+        # Set image name with tag (convert repository owner to lowercase)
+        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        IMAGE_WITH_TAG="${{ env.CONTAINER_REGISTRY }}/$REPO_OWNER_LOWER/${{ env.IMAGE_NAME }}:${{ github.sha }}"
         
         echo "Deploying image: $IMAGE_WITH_TAG"
         
         # Create a temporary directory for modified manifests
         mkdir -p tmp_manifests
         
-        # Process deployment file to replace REPO_OWNER placeholder
-        sed "s|REPO_OWNER|${{ github.repository_owner }}|g" k8s/deployment.yaml > tmp_manifests/deployment.yaml
+        # Process deployment file to replace REPO_OWNER placeholder (convert to lowercase)
+        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        sed "s|REPO_OWNER|$REPO_OWNER_LOWER|g" k8s/deployment.yaml > tmp_manifests/deployment.yaml
         
         # Apply Kubernetes manifests
         kubectl apply -f k8s/namespace.yaml
