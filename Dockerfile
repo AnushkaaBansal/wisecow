@@ -7,6 +7,8 @@ RUN apt-get update && \
     fortune \
     fortunes \
     netcat-openbsd \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory and copy script
