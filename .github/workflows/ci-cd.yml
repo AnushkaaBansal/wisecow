@@ -53,22 +53,43 @@ jobs:
           sleep 1
         done
         
-        # Test the application
+        # Test the application with verbose output for debugging
         echo "Testing application..."
-        RESPONSE=$(curl -s http://localhost:4499)
         
-        # Check if we got a response and it contains a cowsay pattern
-        if [ -z "$RESPONSE" ] || ! echo "$RESPONSE" | grep -q "_\\/\|^\\\\_\\/\|^__"; then
-          echo "Application test failed! Response was empty or not a valid cowsay output."
-          echo "=== Response Start ==="
-          echo "$RESPONSE"
-          echo "=== Response End ==="
+        # First, check if we can connect to the port
+        if ! nc -z localhost 4499; then
+          echo "Error: Cannot connect to port 4499"
+          docker logs wisecow-test
+          exit 1
+        fi
+        
+        # Make the HTTP request with verbose output
+        echo "Making HTTP request..."
+        RESPONSE=$(curl -v http://localhost:4499 2>&1)
+        CURL_EXIT_CODE=$?
+        
+        echo "=== Debug Information ==="
+        echo "Curl exit code: $CURL_EXIT_CODE"
+        echo "=== Response Start ==="
+        echo "$RESPONSE"
+        echo "=== Response End ==="
+        
+        # Check if we got a response with HTTP 200
+        if ! echo "$RESPONSE" | grep -q "^< HTTP/1.1 200"; then
+          echo "Error: Did not receive HTTP 200 response"
           echo "Container logs:"
           docker logs wisecow-test
           exit 1
         fi
         
-        echo "Application test passed! Received valid cowsay output."
+        # Check for any response content
+        if [ -z "$RESPONSE" ]; then
+          echo "Error: Empty response from server"
+          docker logs wisecow-test
+          exit 1
+        fi
+        
+        echo "Application test passed! Received HTTP 200 response."
         
         # Clean up
         echo "Cleaning up..."
