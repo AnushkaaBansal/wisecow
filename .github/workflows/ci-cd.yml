@@ -49,10 +49,22 @@ jobs:
         # Create namespace
         kubectl create namespace ${{ env.KUBE_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
         
+        # Install cert-manager
+        kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+        
+        # Wait for cert-manager to be ready
+        kubectl wait --for=condition=available --timeout=300s deployment/cert-manager -n cert-manager
+        
+        # Install KubeArmor
+        kubectl apply -f https://github.com/kubearmor/KubeArmor/releases/latest/download/kubearmor.yaml
+        
+        # Wait for KubeArmor to be ready
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubearmor -n kube-system --timeout=300s
+        
         # Load local image into Kind
         kind load docker-image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
         
-        # Apply Kubernetes manifests
+        # Apply application manifests
         kubectl apply -f k8s/ -n ${{ env.KUBE_NAMESPACE }}
         
         # Wait for deployment
