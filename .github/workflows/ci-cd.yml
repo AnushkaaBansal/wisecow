@@ -62,13 +62,33 @@ jobs:
         # Enable debugging
         set -ex
         
-        # Create .kube directory and config
+        # Create .kube directory
         mkdir -p ~/.kube
-        echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+        
+        # Write the kubeconfig to a file
+        echo "${{ secrets.KUBE_CONFIG }}" > kubeconfig.yaml
+        
+        # Convert the kubeconfig to the correct format if needed
+        if ! kubectl --kubeconfig=kubeconfig.yaml config view -o json &>/dev/null; then
+          echo "Converting kubeconfig to proper format..."
+          # If the file is a JSON array, extract the first item
+          if head -n 1 kubeconfig.yaml | grep -q '^\['; then
+            echo "Detected array format, converting to single object..."
+            # Extract the first item from the array
+            tail -n +2 kubeconfig.yaml | head -n -1 > kubeconfig-temp.yaml
+            mv kubeconfig-temp.yaml kubeconfig.yaml
+          fi
+        fi
+        
+        # Move the kubeconfig to the default location
+        cp kubeconfig.yaml ~/.kube/config
         chmod 600 ~/.kube/config
         
         # Verify kubectl is working
+        echo "=== kubectl version ==="
         kubectl version --client
+        
+        echo "=== kubectl cluster-info ==="
         kubectl cluster-info
 
     - name: Deploy to Kubernetes
