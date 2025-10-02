@@ -55,28 +55,49 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Setup Docker Buildx
+      id: buildx
+      run: |
+        # Enable debugging
+        set -ex
+        
+        # Print environment for debugging
+        echo "=== Build Environment ==="
+        echo "GitHub Repository: ${{ github.repository }}"
+        echo "GitHub Actor: ${{ github.actor }}"
+        echo "GitHub SHA: ${{ github.sha }}"
+        echo "Container Registry: ${{ env.CONTAINER_REGISTRY }}"
+        echo "Image Name: ${{ env.IMAGE_NAME }}"
+        
+        # Set image details
+        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+        echo "REPO_OWNER_LOWER: $REPO_OWNER_LOWER"
+        
+        # Create buildx builder if it doesn't exist
+        if ! docker buildx ls | grep -q mybuilder; then
+          echo "Creating new buildx builder..."
+          docker buildx create --name mybuilder --use
+        else
+          echo "Using existing buildx builder..."
+          docker buildx use mybuilder
+        fi
+        
+        # Bootstrap the builder
+        docker buildx inspect --bootstrap
+        
+        # Output the image name for the next steps
+        echo "FULL_IMAGE_NAME=${{ env.CONTAINER_REGISTRY }}/$REPO_OWNER_LOWER/${{ env.IMAGE_NAME }}" >> $GITHUB_ENV
+        echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
+        
     - name: Build and push Docker image
       id: docker_build
       run: |
         # Enable debugging
-        set -x
+        set -ex
         
-        # Print environment for debugging
-        echo "GitHub Repository: ${{ github.repository }}"
-        echo "GitHub Actor: ${{ github.actor }}"
-        echo "GitHub SHA: ${{ github.sha }}"
-        
-        # Set image details
-        REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        IMAGE_TAG="${{ github.sha }}"
-        IMAGE_NAME="${{ env.IMAGE_NAME }}"
-        FULL_IMAGE_NAME="${{ env.CONTAINER_REGISTRY }}/$REPO_OWNER_LOWER/$IMAGE_NAME"
-        
-        echo "Building image: $FULL_IMAGE_NAME with tags: latest, $IMAGE_TAG"
-        
-        # Create and use buildx builder
-        docker buildx create --name mybuilder --use || true
-        docker buildx inspect --bootstrap
+        echo "=== Building and Pushing Image ==="
+        echo "Image: $FULL_IMAGE_NAME"
+        echo "Tag: $IMAGE_TAG"
         
         # Build and push with detailed output
         docker buildx build \
@@ -88,7 +109,9 @@ jobs:
           --cache-to=type=gha,mode=max \
           --build-arg NODE_ENV=production \
           --progress=plain \
-          .
+          . || (echo "Build failed with status $?" && exit 1)
+          
+        echo "Image successfully built and pushed"
 
   deploy:
     needs: build-and-push
@@ -117,14 +140,19 @@ jobs:
 
     - name: Deploy to Kubernetes
       run: |
-        # Set image name with tag (convert repository owner to lowercase)
+        # Enable debugging
+        set -ex
+        
+        # Use the same lowercase repository owner from build step
         REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-        IMAGE_WITH_TAG="${{ env.CONTAINER_REGISTRY }}/$REPO_OWNER_LOWER/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+        IMAGE_WITH_TAG="$FULL_IMAGE_NAME:$IMAGE_TAG"
         
         # Debug output
         echo "=== Deployment Information ==="
         echo "Repository Owner: ${{ github.repository_owner }}"
         echo "Repository Owner (lowercase): $REPO_OWNER_LOWER"
+        echo "Full Image Name: $FULL_IMAGE_NAME"
+        echo "Image Tag: $IMAGE_TAG"
         echo "Image with tag: $IMAGE_WITH_TAG"
         
         # Create a temporary directory for modified manifests
@@ -132,6 +160,10 @@ jobs:
         
         # Process deployment file to replace REPO_OWNER placeholder
         sed "s|REPO_OWNER|$REPO_OWNER_LOWER|g" k8s/deployment.yaml > tmp_manifests/deployment.yaml
+        
+        # Verify the processed deployment file
+        echo "=== Processed Deployment File ==="
+        cat tmp_manifests/deployment.yaml
         
         # Apply Kubernetes manifests
         kubectl apply -f k8s/namespace.yaml
