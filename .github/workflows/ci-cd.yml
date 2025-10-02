@@ -5,118 +5,45 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
 
 env:
   IMAGE_NAME: wisecow
-  CONTAINER_REGISTRY: ghcr.io
-  IMAGE_TAG: ${{ github.sha }}
   KUBE_NAMESPACE: wisecow
   KUBERNETES_VERSION: v1.27.0
 
 jobs:
-  lint-and-test:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    
-    - name: Lint Python files
-      run: |
-        pip install flake8
-        flake8 scripts/ --count --max-complexity=10 --max-line-length=127 --statistics
-    
-    - name: Run unit tests
-      run: |
-        pip install pytest
-        # Add your test command here when tests are available
-        # pytest tests/
-
-  build-and-push:
-    needs: lint-and-test
+  build:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
-
+      
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v2
+      
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
 
-    - name: Log in to GitHub Container Registry
-      uses: docker/login-action@v2
-      with:
-        registry: ${{ env.CONTAINER_REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Setup Docker Buildx
-      id: buildx
+    - name: Build Docker image
       run: |
         # Enable debugging
         set -ex
         
-        # Print environment for debugging
-        echo "=== Build Environment ==="
-        echo "GitHub Repository: ${{ github.repository }}"
-        echo "GitHub Actor: ${{ github.actor }}"
-        echo "GitHub SHA: ${{ github.sha }}"
-        echo "Container Registry: ${{ env.CONTAINER_REGISTRY }}"
-        echo "Image Name: ${{ env.IMAGE_NAME }}"
+        echo "=== Building Image ==="
         
-        # Always use the GitHub username (actor) instead of repository owner
-        # This ensures we're pushing to the personal package namespace
-        PACKAGE_OWNER=$(echo "${{ github.actor }}" | tr '[:upper:]' '[:lower:]')
-        echo "PACKAGE_OWNER: $PACKAGE_OWNER"
-        
-        # Create buildx builder if it doesn't exist
-        if ! docker buildx ls | grep -q mybuilder; then
-          echo "Creating new buildx builder..."
-          docker buildx create --name mybuilder --use
-        else
-          echo "Using existing buildx builder..."
-          docker buildx use mybuilder
-        fi
-        
-        # Bootstrap the builder
-        docker buildx inspect --bootstrap
-        
-        # Output the image name for the next steps
-        # Using 'local' as the tag to match your local setup
-        echo "FULL_IMAGE_NAME=${{ env.IMAGE_NAME }}" >> $GITHUB_ENV
-        echo "IMAGE_TAG=local" >> $GITHUB_ENV
-        
-    - name: Build and push Docker image
-      id: docker_build
-      run: |
-        # Enable debugging
-        set -ex
-        
-        echo "=== Building and Pushing Image ==="
-        echo "Image: $FULL_IMAGE_NAME"
-        echo "Tag: $IMAGE_TAG"
-        
-        # Build and push with detailed output
-        # Using the local tag to match your local setup
+        # Build the image with the local tag
         docker buildx build \
           --platform linux/amd64 \
-          -t $FULL_IMAGE_NAME:$IMAGE_TAG \
+          -t wisecow:local \
           --load \
           --progress=plain \
           .
           
-        echo "Image successfully built with tag: $FULL_IMAGE_NAME:$IMAGE_TAG"
-        
-        # Save the image to a tar file for the next step
-        docker save -o /tmp/wisecow.tar $FULL_IMAGE_NAME:$IMAGE_TAG
+        echo "Image successfully built with tag: wisecow:local"
 
   deploy:
-    needs: build-and-push
+    needs: build
     if: github.event_name != 'pull_request'  # Skip deployment for PRs
     runs-on: ubuntu-latest
     environment: production
