@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: Wisecow CI/CD Pipeline
 
 on:
   push:
@@ -9,70 +9,67 @@ on:
 env:
   IMAGE_NAME: wisecow
   KUBE_NAMESPACE: wisecow
-  KUBERNETES_VERSION: v1.27.0
-  IMAGE_TAG: local
+  KUBERNETES_VERSION: v1.26.4
+  IMAGE_TAG: latest
 
 jobs:
-  # CI Pipeline - Runs on PR and push to main
   ci:
+    name: Build, Test and Deploy
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
-      
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v2
-      
+    
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
-      
+    
     - name: Build Docker image
       run: |
-        # Enable debugging
-        set -ex
-        
-        echo "=== Building Image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ==="
-        
-        # Build the image
-        docker buildx build \
-          --platform linux/amd64 \
-          -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
-          --load \
-          --progress=plain \
-          .
-          
-        echo "Image successfully built: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
-        
+        echo "=== Building Docker Image ==="
+        docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
+        docker images
+    
     - name: Set up Kind Cluster
       run: |
-        # Enable debugging and exit on error
-        set -ex
+        # Install Kind
+        curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+        chmod +x ./kind
+        sudo mv ./kind /usr/local/bin/kind
         
-        echo "=== Starting Basic Kind Cluster Setup ==="
+        # Create cluster with default config
+        kind create cluster --wait 5m
         
-        # 1. Check if kind is installed
-        echo "=== Checking kind installation ==="
-        kind version || echo "kind not found"
-        
-        # 2. Delete any existing clusters
-        echo "=== Cleaning up existing clusters ==="
-        kind delete cluster || echo "No existing clusters to delete"
-        
-        # 3. Create a basic cluster without config file
-        echo "=== Creating basic Kind cluster ==="
-        kind create cluster --name basic-cluster --wait 5m -v 5
-        
-        # 4. Verify the cluster
-        echo "=== Verifying cluster ==="
+        # Verify cluster
         kubectl cluster-info
-        kubectl get nodes -o wide
-        
-        echo "=== Basic Kind cluster setup complete ==="
+        kubectl get nodes
     
-    - name: Load local image into Kind
+    - name: Deploy to Kind
       run: |
-        # Enable debugging
+        # Create namespace
+        kubectl create namespace ${{ env.KUBE_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Load local image into Kind
+        kind load docker-image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        
+        # Apply Kubernetes manifests
+        kubectl apply -f k8s/ -n ${{ env.KUBE_NAMESPACE }}
+        
+        # Wait for deployment
+        kubectl wait --for=condition=available --timeout=300s deployment/wisecow -n ${{ env.KUBE_NAMESPACE }}
+        
+        # Show resources
+        kubectl get all -n ${{ env.KUBE_NAMESPACE }}
+    
+    - name: Test Deployment
+      run: |
+        # Get pod name
+        POD_NAME=$(kubectl get pods -n ${{ env.KUBE_NAMESPACE }} -l app=wisecow -o jsonpath="{.items[0].metadata.name}")
+        
+        # Test application
+        kubectl exec -n ${{ env.KUBE_NAMESPACE }} $POD_NAME -- curl -s http://localhost:4499 | grep -q "Wisecow"
+        
+        echo "=== Application is running successfully ==="
         set -ex
         
         echo "=== Loading local image into Kind cluster ==="
