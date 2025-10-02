@@ -159,16 +159,38 @@ jobs:
           fi
         done
         
-        # Wait for deployment to be available
+        # Wait for deployment to be available with more detailed output
         echo "Waiting for deployment to be available..."
-        kubectl wait --for=condition=available \
+        if ! kubectl wait --for=condition=available \
           --timeout=300s \
           deployment/wisecow \
-          -n ${{ env.KUBE_NAMESPACE }}
+          -n ${{ env.KUBE_NAMESPACE }}; then
+          
+          echo "\n=== Deployment failed to become available. Debugging information: ==="
+          echo "\n# 1. Deployment status:"
+          kubectl describe deployment wisecow -n ${{ env.KUBE_NAMESPACE }}
+          
+          echo "\n# 2. Pods status:"
+          kubectl get pods -n ${{ env.KUBE_NAMESPACE }} -o wide
+          
+          echo "\n# 3. Pods details (if any):"
+          for pod in $(kubectl get pods -n ${{ env.KUBE_NAMESPACE }} -l app=wisecow -o name); do
+            echo "\n## Pod: $pod"
+            kubectl describe $pod -n ${{ env.KUBE_NAMESPACE }}
+            echo "\n## Pod logs:"
+            kubectl logs $pod -n ${{ env.KUBE_NAMESPACE }} --tail=50 || true
+          done
+          
+          echo "\n# 4. Events:"
+          kubectl get events -n ${{ env.KUBE_NAMESPACE }} --sort-by='.lastTimestamp'
+          
+          exit 1
+        fi
         
         # Show resources for debugging
-        echo "=== Cluster Resources ==="
+        echo "\n=== Cluster Resources ==="
         kubectl get all -n ${{ env.KUBE_NAMESPACE }}
+        kubectl get ingress -n ${{ env.KUBE_NAMESPACE }}
     
     - name: Test Deployment
       run: |
