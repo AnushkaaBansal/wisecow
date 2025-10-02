@@ -40,15 +40,16 @@ jobs:
         # Wait for the container to be ready (up to 30 seconds)
         echo "Waiting for container to be ready..."
         for i in {1..30}; do
-          if docker logs wisecow-test 2>&1 | grep -q "Listening"; then
+          if docker logs wisecow-test 2>&1 | grep -q "Wisdom served on port="; then
             echo "Container is ready!"
             break
           fi
           if [ $i -eq 30 ]; then
-            echo "Timed out waiting for container to be ready"
+            echo "Timed out waiting for container to be ready. Current logs:"
             docker logs wisecow-test
             exit 1
           fi
+          echo "Waiting... (attempt $i/30)"
           sleep 1
         done
         
