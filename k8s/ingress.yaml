@@ -5,16 +5,11 @@ metadata:
   namespace: wisecow
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
-    # Use self-signed issuer for local development
-    cert-manager.io/cluster-issuer: "selfsigned-issuer"
+    # Disable TLS for local development
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
 spec:
-  tls:
-  - hosts:
-    - wisecow.local
-    secretName: wisecow-tls
   rules:
-  - host: wisecow.local
-    http:
+  - http:
       paths:
       - path: /
         pathType: Prefix

@@ -13,8 +13,8 @@ env:
   IMAGE_TAG: latest
 
 jobs:
-  ci:
-    name: Build, Test and Deploy
+  build-and-test:
+    name: Build and Test
     runs-on: ubuntu-latest
     
     steps:
@@ -29,6 +29,16 @@ jobs:
         echo "=== Building Docker Image ==="
         docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
         docker images
+    
+    - name: Test Docker image
+      run: |
+        echo "=== Testing Docker Image ==="
+        docker run -d --name wisecow-test -p 4499:4499 ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        sleep 5
+        curl -s http://localhost:4499 | grep -q "Wisecow"
+        docker stop wisecow-test
+        docker rm wisecow-test
+        echo "=== Docker image test passed ==="
     
     - name: Set up Kind Cluster
       run: |
@@ -49,11 +59,14 @@ jobs:
         # Create namespace
         kubectl create namespace ${{ env.KUBE_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
         
-        # Install cert-manager
-        kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+        # Install ingress-nginx
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
         
-        # Wait for cert-manager to be ready
-        kubectl wait --for=condition=available --timeout=300s deployment/cert-manager -n cert-manager
+        # Wait for ingress-nginx to be ready
+        kubectl wait --namespace ingress-nginx \
+          --for=condition=ready pod \
+          --selector=app.kubernetes.io/component=controller \
+          --timeout=300s
         
         # Load local image into Kind
         kind load docker-image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
@@ -76,166 +89,8 @@ jobs:
         kubectl exec -n ${{ env.KUBE_NAMESPACE }} $POD_NAME -- curl -s http://localhost:4499 | grep -q "Wisecow"
         
         echo "=== Application is running successfully ==="
-        set -ex
         
-        echo "=== Loading local image into Kind cluster ==="
-        
-        # Load the local image into the Kind cluster
-        kind load docker-image ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        
-        echo "Image successfully loaded into Kind cluster"
-        
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
-      with:
-        version: ${{ env.KUBERNETES_VERSION }}
-        
-    - name: Test Kubernetes Deployment
-      run: |
-        # Enable debugging
-        set -ex
-        
-        echo "=== Testing Kubernetes Deployment ==="
-        
-        # Create namespace
-        kubectl create namespace ${{ env.KUBE_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
-        
-        # Deploy application
-        kubectl apply -f k8s/ -n ${{ env.KUBE_NAMESPACE }}
-        
-        # Wait for deployment to be ready
-        kubectl wait --for=condition=available --timeout=300s deployment/wisecow -n ${{ env.KUBE_NAMESPACE }}
-        
-        # Get pod status
-        echo "=== Pod Status ==="
-        kubectl get pods -n ${{ env.KUBE_NAMESPACE }}
-        
-        # Test the application
-        echo "=== Testing Application ==="
-        kubectl run -i --rm --restart=Never test-curl --image=curlimages/curl -- \
-          curl -s http://wisecow.wisecow.svc.cluster.local || true
-
-  # CD Pipeline - Only runs on push to main
-  cd:
-    needs: ci
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: production
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-      
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
-      with:
-        version: ${{ env.KUBERNETES_VERSION }}
-        
-    - name: Configure Kubernetes
-      run: |
-        # Enable debugging
-        set -ex
-        
-        # Create .kube directory
-        mkdir -p ~/.kube
-        
-        # Write the kubeconfig to a file
-        echo "${{ secrets.KUBE_CONFIG }}" > kubeconfig.yaml
-        
-        # Convert the kubeconfig to the correct format if needed
-        if ! kubectl --kubeconfig=kubeconfig.yaml config view -o json &>/dev/null; then
-          echo "Converting kubeconfig to proper format..."
-          # If the file is a JSON array, extract the first item
-          if head -n 1 kubeconfig.yaml | grep -q '^\['; then
-            echo "Detected array format, converting to single object..."
-            # Extract the first item from the array
-            tail -n +2 kubeconfig.yaml | head -n -1 > kubeconfig-temp.yaml
-            mv kubeconfig-temp.yaml kubeconfig.yaml
-          fi
-        fi
-        
-        # Move the kubeconfig to the default location
-        cp kubeconfig.yaml ~/.kube/config
-        chmod 600 ~/.kube/config
-        
-        # Verify kubectl is working
-        echo "=== kubectl version ==="
-        kubectl version --client
-        
-        echo "=== kubectl cluster-info ==="
-        kubectl cluster-info
-        
-    - name: Configure Kubernetes
-      run: |
-        # Enable debugging
-        set -ex
-        
-        # Create .kube directory
-        mkdir -p ~/.kube
-        
-        # Write the kubeconfig to a file
-        echo "${{ secrets.KUBE_CONFIG }}" > kubeconfig.yaml
-        
-        # Convert the kubeconfig to the correct format if needed
-        if ! kubectl --kubeconfig=kubeconfig.yaml config view -o json &>/dev/null; then
-          echo "Converting kubeconfig to proper format..."
-          # If the file is a JSON array, extract the first item
-          if head -n 1 kubeconfig.yaml | grep -q '^\['; then
-            echo "Detected array format, converting to single object..."
-            # Extract the first item from the array
-            tail -n +2 kubeconfig.yaml | head -n -1 > kubeconfig-temp.yaml
-            mv kubeconfig-temp.yaml kubeconfig.yaml
-          fi
-        fi
-        
-        # Move the kubeconfig to the default location
-        cp kubeconfig.yaml ~/.kube/config
-        chmod 600 ~/.kube/config
-        
-        # Verify kubectl is working
-        echo "=== kubectl version ==="
-        kubectl version --client
-        
-        echo "=== kubectl cluster-info ==="
-        kubectl cluster-info
-
-    - name: Deploy to Kubernetes
-      run: |
-        # Enable debugging
-        set -ex
-        
-        # Create a temporary directory for modified manifests
-        mkdir -p tmp_manifests
-        
-        # Process deployment file to use the local image
-        sed "s|image: .*|image: wisecow:local|" k8s/deployment.yaml > tmp_manifests/deployment.yaml
-        
-        # Verify the processed deployment file
-        echo "=== Processed Deployment File ==="
-        cat tmp_manifests/deployment.yaml
-        
-        # Apply Kubernetes manifests
-        kubectl apply -f k8s/namespace.yaml
-        kubectl apply -f tmp_manifests/deployment.yaml
-        kubectl apply -f k8s/service.yaml
-        kubectl apply -f k8s/ingress.yaml
-        
-        # Wait for rollout to complete
-        kubectl rollout status deployment/wisecow -n ${{ env.KUBE_NAMESPACE }} --timeout=300s
-        
-        # Verify resources
-        echo -e "\n=== Deployment Status ==="
-        kubectl get deployments -n ${{ env.KUBE_NAMESPACE }}
-        
-        echo -e "\n=== Pods Status ==="
-        kubectl get pods -n ${{ env.KUBE_NAMESPACE }}
-        
-        echo -e "\n=== Service Status ==="
-        kubectl get svc -n ${{ env.KUBE_NAMESPACE }}
-        
-        echo -e "\n=== Ingress Status ==="
-        kubectl get ingress -n ${{ env.KUBE_NAMESPACE }}
-        
-        # Get application URL
-        echo -e "\n=== Application URL ==="
-        kubectl get ingress -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.items[0].spec.rules[0].host}'
+        # Clean up
+        echo "=== Cleaning up test resources ==="
+        kubectl delete -f k8s/ -n ${{ env.KUBE_NAMESPACE }} --ignore-not-found=true
+        kind delete cluster --wait 5m
