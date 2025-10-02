@@ -129,9 +129,11 @@ jobs:
     - name: Install KubeArmor CRDs
       run: |
         echo "Installing KubeArmor CRDs..."
-        kubectl apply -f https://raw.githubusercontent.com/kubearmor/kubearmor-client/main/deployments/CRD/KubeArmorPolicy.yaml
+        # Install KubeArmor CRDs from the main repository
+        kubectl apply -f https://raw.githubusercontent.com/kubearmor/kubearmor/main/deployments/CRD/KubeArmorPolicy.yaml
         
         # Wait for CRDs to be established
+        echo "Waiting for KubeArmor CRDs to be established..."
         kubectl wait --for=condition=Established crd kubearmorpolicies.security.kubearmor.com --timeout=60s
     
     - name: Apply Kubernetes Manifests
