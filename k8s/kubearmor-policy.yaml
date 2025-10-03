@@ -14,11 +14,14 @@ spec:
     matchDirectories:
     - dir: /app/
       recursive: true
+    matchPaths:
+    - path: /etc/passwd
+      readOnly: true
   network:
     matchProtocols:
     - protocol: tcp
       fromSource:
       - path: /app/wisecow.sh
-  action: "Allow"
+  action: Block
   severity: 5
   message: "Wisecow container is restricted (granted minimal permissions)"
